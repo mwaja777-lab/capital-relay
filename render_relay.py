@@ -4,8 +4,8 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 app = Flask(__name__)
 
-# التوجيه المباشر والآمن إلى خوادم كابيتال الرسمية
-URL = "https://api.capital.com/api/v1/"
+# استخدام الآي بي الرقمي المباشر لـ Capital.com لتخطي مشكلة الـ DNS بالسحاب
+URL = "https://185.105.144.130/api/v1/"
 
 @app.route('/proxy/<path:ep>', methods=['GET', 'POST'])
 def proxy(ep):
