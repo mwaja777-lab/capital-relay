@@ -1,75 +1,21 @@
 import os
 import requests
 from flask import Flask, request, Response
-import urllib3
-import socket
-import ssl
-from requests.adapters import HTTPAdapter
-from urllib3.poolmanager import PoolManager
-
-# تعطيل تحذيرات SSL
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 app = Flask(__name__)
 
-# ----------------------------------------------------------------------
-# إعدادات الاتصال المباشر بـ Capital.com
-# ----------------------------------------------------------------------
-API_HOST = "api.capital.com"
-API_IP = "185.105.144.130"
-BASE_PATH = "/api/v1/"
+# اسم المضيف الرسمي لـ Capital.com API
+BASE_URL = "https://api.capital.com/api/v1/"
 
-# ----------------------------------------------------------------------
-# محول HTTP مخصص يفرض اسم المضيف في SNI ويستخدم IP للاتصال
-# ----------------------------------------------------------------------
-class HostHeaderSSLAdapter(HTTPAdapter):
-    def init_poolmanager(self, *args, **kwargs):
-        context = ssl.create_default_context()
-        context.check_hostname = False
-        context.verify_mode = ssl.CERT_NONE
-        kwargs['ssl_context'] = context
-        return super().init_poolmanager(*args, **kwargs)
-
-    def send(self, request, **kwargs):
-        # حفظ اسم المضيف الأصلي
-        original_host = request.headers.get('Host', API_HOST)
-        # تغيير عنوان URL إلى IP مع الاحتفاظ بالمسار
-        request.url = request.url.replace(
-            f"https://{original_host}", f"https://{API_IP}"
-        )
-        # إجبار الاتصال على IP ولكن مع إرسال اسم المضيف الصحيح
-        conn = self.get_connection(request.url, proxies=kwargs.get('proxies'))
-        conn.host = API_IP
-        conn.sock = None  # سيعاد إنشاؤه
-        # نضبط الـ Host header
-        request.headers['Host'] = API_HOST
-        # تعطيل التحقق من SSL تماماً
-        kwargs['verify'] = False
-        return super().send(request, **kwargs)
-
-# ----------------------------------------------------------------------
-# تكوين جلسة requests مع المحول المخصص
-# ----------------------------------------------------------------------
+# جلسة طلبات عادية
 session = requests.Session()
-session.mount("https://", HostHeaderSSLAdapter())
-session.verify = False
 
-# ----------------------------------------------------------------------
-# بناء الرابط الكامل
-# ----------------------------------------------------------------------
-def build_url(endpoint: str) -> str:
-    return f"https://{API_HOST}{BASE_PATH}{endpoint}"
-
-# ----------------------------------------------------------------------
-# فلترة الهيدرز
-# ----------------------------------------------------------------------
 def filter_headers(incoming):
     allowed = {"x-cap-api-key", "cst", "x-security-token", "content-type"}
     result = {}
     for k, v in incoming.items():
         if k.lower() in allowed:
             result[k] = v
-    result["Host"] = API_HOST
     result["User-Agent"] = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -77,12 +23,9 @@ def filter_headers(incoming):
     result["Accept"] = "application/json"
     return result
 
-# ----------------------------------------------------------------------
-# راوت البروكسي
-# ----------------------------------------------------------------------
 @app.route("/proxy/<path:endpoint>", methods=["GET", "POST"])
 def proxy_request(endpoint):
-    target_url = build_url(endpoint)
+    target_url = f"{BASE_URL}{endpoint}"
     headers = filter_headers(request.headers)
     json_body = None
     if request.method == "POST":
@@ -96,16 +39,10 @@ def proxy_request(endpoint):
         else:
             resp = session.get(target_url, headers=headers, timeout=15)
 
-        # نبني الرد مع الحفاظ على الهيدرز المهمة
-        response_headers = {}
-        for k, v in resp.headers.items():
-            # تجنب مشاكل تكرار الهيدر
-            if k.lower() not in ('transfer-encoding', 'content-encoding', 'content-length'):
-                response_headers[k] = v
         return Response(
             resp.content,
             status=resp.status_code,
-            headers=response_headers
+            headers=dict(resp.headers.items()),
         )
     except requests.exceptions.SSLError as e:
         return {"proxy_error": f"SSL Error: {str(e)}"}, 502
@@ -114,11 +51,8 @@ def proxy_request(endpoint):
     except requests.exceptions.Timeout:
         return {"proxy_error": "Upstream request timed out"}, 504
     except Exception as e:
-        return {"proxy_error": f"Proxy internal error: {str(e)}"}, 500
+        return {"proxy_error": f"Internal error: {str(e)}"}, 500
 
-# ----------------------------------------------------------------------
-# Health check
-# ----------------------------------------------------------------------
 @app.route("/health")
 def health():
     return {"status": "ok"}, 200
