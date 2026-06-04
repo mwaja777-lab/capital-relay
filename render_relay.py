@@ -3,7 +3,10 @@ from flask import Flask, request, jsonify
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 app = Flask(__name__)
-URL = "https://185.105.144.131/api/v1/"
+
+# التوجيه المباشر والآمن إلى خوادم كابيتال الرسمية
+URL = "https://api.capital.com/api/v1/"
+
 @app.route('/proxy/<path:ep>', methods=['GET', 'POST'])
 def proxy(ep):
     t_url = f"{URL}{ep}"
@@ -17,4 +20,4 @@ def proxy(ep):
         return (r.text, r.status_code, r.headers.items())
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-      
+        
